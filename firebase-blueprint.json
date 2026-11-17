@@ -1,0 +1,76 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Authenticated player profile and online career statistics.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Firebase Auth UID of the player." },
+        "displayName": { "type": "string", "description": "Player display name." },
+        "photoUrl": { "type": "string", "description": "Optional avatar URL." },
+        "wins": { "type": "integer", "description": "Total online wins." },
+        "losses": { "type": "integer", "description": "Total online losses." },
+        "draws": { "type": "integer", "description": "Total online draws." },
+        "gamesPlayed": { "type": "integer", "description": "Total online games completed." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp of profile creation (FieldValue.serverTimestamp())." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp of last profile update (FieldValue.serverTimestamp())." }
+      },
+      "required": ["userId", "displayName", "wins", "losses", "draws", "gamesPlayed", "createdAt", "updatedAt"]
+    },
+    "OnlineRoom": {
+      "title": "OnlineRoom",
+      "description": "Real-time private multiplayer chess room with synchronized FEN, move history, timers, and turn enforcement.",
+      "type": "object",
+      "properties": {
+        "roomCode": { "type": "string", "description": "Unique 6-character uppercase alphanumeric room code." },
+        "hostId": { "type": "string", "description": "UID of the room creator." },
+        "creatorColor": { "type": "string", "enum": ["WHITE", "BLACK"], "description": "Piece color chosen by the room creator." },
+        "whitePlayerId": { "type": "string", "description": "UID of White player, or empty string if waiting." },
+        "blackPlayerId": { "type": "string", "description": "UID of Black player, or empty string if waiting." },
+        "whiteName": { "type": "string", "description": "Display name of White player." },
+        "blackName": { "type": "string", "description": "Display name of Black player." },
+        "whitePhotoUrl": { "type": "string", "description": "Photo URL of White player or empty string." },
+        "blackPhotoUrl": { "type": "string", "description": "Photo URL of Black player or empty string." },
+        "participantIds": { "type": "array", "description": "List of 1 or 2 participant UIDs in the room." },
+        "status": { "type": "string", "enum": ["WAITING", "ACTIVE", "FINISHED", "EXPIRED"], "description": "Current lifecycle status of the room." },
+        "fen": { "type": "string", "description": "Authoritative Forsyth-Edwards Notation of the current board position." },
+        "turn": { "type": "string", "enum": ["WHITE", "BLACK"], "description": "Color whose turn it is to move." },
+        "moveCount": { "type": "integer", "description": "Total half-moves played in the game." },
+        "lastMoveUci": { "type": "string", "description": "Last move in UCI notation (e.g. e2e4)." },
+        "lastMoveSan": { "type": "string", "description": "Last move in SAN notation (e.g. Nf3)." },
+        "uciHistory": { "type": "array", "description": "Bounded list of UCI moves played." },
+        "sanHistory": { "type": "array", "description": "Bounded list of SAN moves played." },
+        "timerMinutes": { "type": "integer", "description": "Initial clock duration per player in minutes (1, 3, 5, 10, 15)." },
+        "whiteTimeMs": { "type": "integer", "description": "Remaining White clock time in milliseconds." },
+        "blackTimeMs": { "type": "integer", "description": "Remaining Black clock time in milliseconds." },
+        "winner": { "type": "string", "enum": ["", "WHITE", "BLACK", "DRAW"], "description": "Game winner or DRAW when finished." },
+        "termination": { "type": "string", "description": "Reason the game ended (CHECKMATE, STALEMATE, RESIGNATION, TIMEOUT, DRAW_AGREEMENT, etc.)." },
+        "drawOfferBy": { "type": "string", "enum": ["", "WHITE", "BLACK"], "description": "Color currently offering a draw, or empty string." },
+        "rematchRoomCode": { "type": "string", "description": "Room code for an agreed rematch, or empty string." },
+        "whiteLastSeenMs": { "type": "integer", "description": "Client heartbeat epoch millis for White connection status." },
+        "blackLastSeenMs": { "type": "integer", "description": "Client heartbeat epoch millis for Black connection status." },
+        "expiresAtMs": { "type": "integer", "description": "Epoch millis after which an unjoined room is considered expired." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server creation timestamp (FieldValue.serverTimestamp())." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server last-updated timestamp (FieldValue.serverTimestamp())." }
+      },
+      "required": [
+        "roomCode", "hostId", "creatorColor", "whitePlayerId", "blackPlayerId",
+        "whiteName", "blackName", "whitePhotoUrl", "blackPhotoUrl", "participantIds",
+        "status", "fen", "turn", "moveCount", "lastMoveUci", "lastMoveSan",
+        "uciHistory", "sanHistory", "timerMinutes", "whiteTimeMs", "blackTimeMs",
+        "winner", "termination", "drawOfferBy", "rematchRoomCode",
+        "whiteLastSeenMs", "blackLastSeenMs", "expiresAtMs", "createdAt", "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Per-user private profile and online chess career statistics."
+    },
+    "/rooms/{roomId}": {
+      "schema": { "$ref": "#/entities/OnlineRoom" },
+      "description": "Real-time private multiplayer chess game rooms keyed by room code."
+    }
+  }
+}

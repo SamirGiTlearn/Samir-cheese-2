@@ -1,0 +1,8 @@
+{
+  "name": "Chess BY SAMIR",
+  "description": "Chess Master – Made by Samir: Production Android chess app with offline two-player mode and real-time online multiplayer.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

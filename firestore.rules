@@ -1,0 +1,232 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global safety net: default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidRoomCode(code) {
+      return code is string && code.size() >= 4 && code.size() <= 12 && code.matches('^[A-Z0-9]+$');
+    }
+
+    // --- UserProfile Validation ---
+    function isValidUserProfile(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 60 &&
+             data.photoUrl is string && data.photoUrl.size() <= 500 &&
+             data.wins is int && data.wins >= 0 && data.wins <= 1000000 &&
+             data.losses is int && data.losses >= 0 && data.losses <= 1000000 &&
+             data.draws is int && data.draws >= 0 && data.draws <= 1000000 &&
+             data.gamesPlayed is int && data.gamesPlayed >= 0 && data.gamesPlayed <= 3000000 &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    match /users/{userId} {
+      allow get, list: if isSignedIn() && request.auth.uid == userId;
+
+      allow create: if isSignedIn() &&
+                       isValidId(userId) &&
+                       request.auth.uid == userId &&
+                       request.resource.data.userId == request.auth.uid &&
+                       request.resource.data.keys().hasAll(['userId', 'displayName', 'photoUrl', 'wins', 'losses', 'draws', 'gamesPlayed', 'createdAt', 'updatedAt']) &&
+                       request.resource.data.keys().hasOnly(['userId', 'displayName', 'photoUrl', 'wins', 'losses', 'draws', 'gamesPlayed', 'createdAt', 'updatedAt']) &&
+                       isValidUserProfile(request.resource.data);
+
+      allow update: if isSignedIn() &&
+                       isValidId(userId) &&
+                       request.auth.uid == userId &&
+                       isValidUserProfile(request.resource.data) &&
+                       request.resource.data.userId == resource.data.userId &&
+                       request.resource.data.createdAt == resource.data.createdAt &&
+                       request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'photoUrl', 'wins', 'losses', 'draws', 'gamesPlayed', 'updatedAt']);
+
+      allow delete: if isSignedIn() && isValidId(userId) && request.auth.uid == userId;
+    }
+
+    // --- OnlineRoom Validation ---
+    function isValidOnlineRoom(data) {
+      return isValidRoomCode(data.roomCode) &&
+             data.hostId is string && data.hostId.size() >= 1 && data.hostId.size() <= 128 &&
+             data.creatorColor in ['WHITE', 'BLACK'] &&
+             data.whitePlayerId is string && data.whitePlayerId.size() <= 128 &&
+             data.blackPlayerId is string && data.blackPlayerId.size() <= 128 &&
+             data.whiteName is string && data.whiteName.size() <= 60 &&
+             data.blackName is string && data.blackName.size() <= 60 &&
+             data.whitePhotoUrl is string && data.whitePhotoUrl.size() <= 500 &&
+             data.blackPhotoUrl is string && data.blackPhotoUrl.size() <= 500 &&
+             data.participantIds is list && data.participantIds.size() in [1, 2] &&
+             data.participantIds[0] is string &&
+             (data.participantIds.size() < 2 || data.participantIds[1] is string) &&
+             data.status in ['WAITING', 'ACTIVE', 'FINISHED', 'EXPIRED'] &&
+             data.fen is string && data.fen.size() >= 15 && data.fen.size() <= 200 &&
+             data.turn in ['WHITE', 'BLACK'] &&
+             data.moveCount is int && data.moveCount >= 0 && data.moveCount <= 1000 &&
+             data.lastMoveUci is string && data.lastMoveUci.size() <= 10 &&
+             data.lastMoveSan is string && data.lastMoveSan.size() <= 20 &&
+             data.uciHistory is list && data.uciHistory.size() <= 500 &&
+             (data.uciHistory.size() == 0 || data.uciHistory[0] is string) &&
+             data.sanHistory is list && data.sanHistory.size() <= 500 &&
+             (data.sanHistory.size() == 0 || data.sanHistory[0] is string) &&
+             data.uciHistory.size() == data.sanHistory.size() &&
+             data.timerMinutes in [1, 3, 5, 10, 15] &&
+             data.whiteTimeMs is int && data.whiteTimeMs >= 0 && data.whiteTimeMs <= 3600000 &&
+             data.blackTimeMs is int && data.blackTimeMs >= 0 && data.blackTimeMs <= 3600000 &&
+             data.winner in ['', 'WHITE', 'BLACK', 'DRAW'] &&
+             data.termination is string && data.termination.size() <= 40 &&
+             data.drawOfferBy in ['', 'WHITE', 'BLACK'] &&
+             data.rematchRoomCode is string && data.rematchRoomCode.size() <= 12 &&
+             data.whiteLastSeenMs is int && data.whiteLastSeenMs >= 0 &&
+             data.blackLastSeenMs is int && data.blackLastSeenMs >= 0 &&
+             data.expiresAtMs is int && data.expiresAtMs > 0 &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidCreateRoom(roomId, inc) {
+      return inc.roomCode == roomId &&
+             inc.hostId == request.auth.uid &&
+             inc.status == 'WAITING' &&
+             inc.moveCount == 0 &&
+             inc.turn == 'WHITE' &&
+             inc.winner == '' &&
+             inc.termination == '' &&
+             inc.drawOfferBy == '' &&
+             inc.rematchRoomCode == '' &&
+             inc.uciHistory.size() == 0 &&
+             inc.sanHistory.size() == 0 &&
+             inc.participantIds.size() == 1 &&
+             inc.participantIds[0] == request.auth.uid &&
+             (
+               (inc.creatorColor == 'WHITE' && inc.whitePlayerId == request.auth.uid && inc.blackPlayerId == '') ||
+               (inc.creatorColor == 'BLACK' && inc.blackPlayerId == request.auth.uid && inc.whitePlayerId == '')
+             );
+    }
+
+    function isJoinRoomAction(inc, ext, diffKeys) {
+      return ext.status == 'WAITING' &&
+             inc.status == 'ACTIVE' &&
+             !(request.auth.uid in ext.participantIds) &&
+             ext.participantIds.size() == 1 &&
+             inc.participantIds.size() == 2 &&
+             ext.hostId in inc.participantIds &&
+             request.auth.uid in inc.participantIds &&
+             (
+               (ext.whitePlayerId == '' && inc.whitePlayerId == request.auth.uid && inc.blackPlayerId == ext.blackPlayerId &&
+                diffKeys.hasOnly(['whitePlayerId', 'whiteName', 'whitePhotoUrl', 'participantIds', 'status', 'whiteLastSeenMs', 'updatedAt'])) ||
+               (ext.blackPlayerId == '' && inc.blackPlayerId == request.auth.uid && inc.whitePlayerId == ext.whitePlayerId &&
+                diffKeys.hasOnly(['blackPlayerId', 'blackName', 'blackPhotoUrl', 'participantIds', 'status', 'blackLastSeenMs', 'updatedAt']))
+             );
+    }
+
+    function isMakeMoveAction(inc, ext, diffKeys) {
+      return ext.status == 'ACTIVE' &&
+             request.auth.uid in ext.participantIds &&
+             ((ext.turn == 'WHITE' && ext.whitePlayerId == request.auth.uid) ||
+              (ext.turn == 'BLACK' && ext.blackPlayerId == request.auth.uid)) &&
+             inc.moveCount == ext.moveCount + 1 &&
+             inc.turn != ext.turn &&
+             inc.uciHistory.size() == ext.uciHistory.size() + 1 &&
+             inc.sanHistory.size() == ext.sanHistory.size() + 1 &&
+             inc.status in ['ACTIVE', 'FINISHED'] &&
+             inc.drawOfferBy == '' &&
+             diffKeys.hasOnly([
+               'fen', 'turn', 'moveCount', 'lastMoveUci', 'lastMoveSan',
+               'uciHistory', 'sanHistory', 'whiteTimeMs', 'blackTimeMs',
+               'status', 'winner', 'termination', 'drawOfferBy',
+               'whiteLastSeenMs', 'blackLastSeenMs', 'updatedAt'
+             ]);
+    }
+
+    function isActiveParticipantAction(inc, ext, diffKeys) {
+      return ext.status == 'ACTIVE' &&
+             request.auth.uid in ext.participantIds &&
+             (
+               // Draw offer / decline
+               (inc.status == 'ACTIVE' && diffKeys.hasOnly(['drawOfferBy', 'updatedAt'])) ||
+               // End game (Resign / Draw Accept / Timeout)
+               (inc.status == 'FINISHED' && inc.winner in ['WHITE', 'BLACK', 'DRAW'] &&
+                inc.termination.size() >= 1 && inc.drawOfferBy == '' &&
+                diffKeys.hasOnly(['status', 'winner', 'termination', 'drawOfferBy', 'whiteTimeMs', 'blackTimeMs', 'updatedAt']))
+             );
+    }
+
+    function isHeartbeatOrLifecycleAction(inc, ext, diffKeys) {
+      return (
+        // Heartbeat while WAITING or ACTIVE
+        (ext.status in ['WAITING', 'ACTIVE'] && request.auth.uid in ext.participantIds &&
+         ((ext.whitePlayerId == request.auth.uid && diffKeys.hasOnly(['whiteLastSeenMs', 'updatedAt'])) ||
+          (ext.blackPlayerId == request.auth.uid && diffKeys.hasOnly(['blackLastSeenMs', 'updatedAt'])))) ||
+        // Expire waiting room by host
+        (ext.status == 'WAITING' && ext.hostId == request.auth.uid && inc.status == 'EXPIRED' &&
+         diffKeys.hasOnly(['status', 'updatedAt'])) ||
+        // Set rematch room code once after FINISHED
+        (ext.status == 'FINISHED' && request.auth.uid in ext.participantIds && ext.rematchRoomCode == '' &&
+         isValidRoomCode(inc.rematchRoomCode) && diffKeys.hasOnly(['rematchRoomCode', 'updatedAt']))
+      );
+    }
+
+    function isAllowedRoomUpdate(inc, ext, diffKeys) {
+      return inc.roomCode == ext.roomCode &&
+             inc.hostId == ext.hostId &&
+             inc.creatorColor == ext.creatorColor &&
+             inc.timerMinutes == ext.timerMinutes &&
+             inc.expiresAtMs == ext.expiresAtMs &&
+             inc.createdAt == ext.createdAt &&
+             (
+               isJoinRoomAction(inc, ext, diffKeys) ||
+               isMakeMoveAction(inc, ext, diffKeys) ||
+               isActiveParticipantAction(inc, ext, diffKeys) ||
+               isHeartbeatOrLifecycleAction(inc, ext, diffKeys)
+             );
+    }
+
+    match /rooms/{roomId} {
+      allow get: if isSignedIn() &&
+                    isValidRoomCode(roomId) &&
+                    (resource == null || request.auth.uid in resource.data.participantIds || resource.data.status == 'WAITING');
+
+      allow list: if isSignedIn() && request.auth.uid in resource.data.participantIds;
+
+      allow create: if isSignedIn() &&
+                       isValidRoomCode(roomId) &&
+                       request.resource.data.keys().hasAll([
+                         'roomCode', 'hostId', 'creatorColor', 'whitePlayerId', 'blackPlayerId',
+                         'whiteName', 'blackName', 'whitePhotoUrl', 'blackPhotoUrl', 'participantIds',
+                         'status', 'fen', 'turn', 'moveCount', 'lastMoveUci', 'lastMoveSan',
+                         'uciHistory', 'sanHistory', 'timerMinutes', 'whiteTimeMs', 'blackTimeMs',
+                         'winner', 'termination', 'drawOfferBy', 'rematchRoomCode',
+                         'whiteLastSeenMs', 'blackLastSeenMs', 'expiresAtMs', 'createdAt', 'updatedAt'
+                       ]) &&
+                       request.resource.data.keys().hasOnly([
+                         'roomCode', 'hostId', 'creatorColor', 'whitePlayerId', 'blackPlayerId',
+                         'whiteName', 'blackName', 'whitePhotoUrl', 'blackPhotoUrl', 'participantIds',
+                         'status', 'fen', 'turn', 'moveCount', 'lastMoveUci', 'lastMoveSan',
+                         'uciHistory', 'sanHistory', 'timerMinutes', 'whiteTimeMs', 'blackTimeMs',
+                         'winner', 'termination', 'drawOfferBy', 'rematchRoomCode',
+                         'whiteLastSeenMs', 'blackLastSeenMs', 'expiresAtMs', 'createdAt', 'updatedAt'
+                       ]) &&
+                       isValidOnlineRoom(request.resource.data) &&
+                       isValidCreateRoom(roomId, request.resource.data);
+
+      allow update: if isSignedIn() &&
+                       isValidRoomCode(roomId) &&
+                       isValidOnlineRoom(request.resource.data) &&
+                       isAllowedRoomUpdate(request.resource.data, resource.data, request.resource.data.diff(resource.data).affectedKeys());
+
+      allow delete: if isSignedIn() &&
+                       isValidRoomCode(roomId) &&
+                       resource.data.hostId == request.auth.uid &&
+                       resource.data.status in ['WAITING', 'EXPIRED'];
+    }
+  }
+}
